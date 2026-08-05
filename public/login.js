@@ -1,0 +1,3 @@
+const form=document.querySelector('#login-form'), error=document.querySelector('#login-error');
+fetch('/api/auth/me').then(r=>r.ok&&location.replace('/')).catch(()=>{});
+form.addEventListener('submit',async e=>{e.preventDefault(); error.textContent=''; const button=form.querySelector('button');button.disabled=true;button.textContent='Entrando…';try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(form)))});const json=await r.json();if(!r.ok)throw Error(json.error);location.replace('/')}catch(err){error.textContent=err.message||'Não foi possível entrar.';button.disabled=false;button.textContent='Entrar no sistema →'}});
