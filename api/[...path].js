@@ -413,13 +413,22 @@ module.exports = async (req, res) => {
     return send(res, 200, { ok: true });
   }
 
-  // Inicializa o banco apenas para as outras rotas
-  await ensureAdmin();
+  try {
+    // Inicializa o banco apenas para as outras rotas
+    await ensureAdmin();
 
-  const [entity, id] = path;
-  const method = req.method;
+    const [entity, id] = path;
+    const method = req.method;
 
-};
+    if (entity === 'auth' && id === 'login' && method === 'POST') {
+      if (!allowed(req)) {
+        return send(
+          res,
+          429,
+          { error: 'Muitas tentativas. Aguarde alguns minutos.' },
+          { 'Retry-After': '900' }
+        );
+      }
 
       const { email, password } = parseBody(req);
 
