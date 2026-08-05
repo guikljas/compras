@@ -1,9 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    { "source": "/login", "destination": "/login.html" },
-    { "source": "/health", "destination": "/api/health" },
-    { "source": "/", "destination": "/app.html" }
-  ],
-  "functions": { "api/[...path].js": { "maxDuration": 60 } }
-}
