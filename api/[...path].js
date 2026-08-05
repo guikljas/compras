@@ -400,6 +400,68 @@ async function importCsv(text) {
   return entries.length;
 }
 
+function xmlValue(xml, tag) {
+  const found = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+
+  return found
+    ? found[1].replace(/<!\[CDATA\[|\]\]>/g, '').replace(/&amp;/g, '&').trim()
+    : '';
+}
+
+function parseNfe(xml) {
+  if (
+    typeof xml !== 'string' ||
+    xml.length > 3_000_000 ||
+    !/<(?:nfeProc:)?NFe[ >]/i.test(xml)
+  ) {
+    throw new Error('Envie um XML válido de NF-e.');
+  }
+
+  const number = xmlValue(xml, 'nNF');
+  const date = (xmlValue(xml, 'dhEmi') || xmlValue(xml, 'dEmi')).slice(0, 10);
+  const supplier = xmlValue(xml, 'xNome');
+  const total = Number(xmlValue(xml, 'vNF'));
+
+  if (!number || !date || !supplier || !Number.isFinite(total)) {
+    throw new Error('Não foi possível localizar número, emissão, emitente e valor total no XML.');
+  }
+
+  return { number, date, supplier, total };
+}
+
+async function importNfe(xml) {
+  const parsed = parseNfe(xml);
+
+  if (await one('invoices', { number: `eq.${parsed.number}`, supplier: `eq.${parsed.supplier}` })) {
+    const error = new Error('Esta nota já foi importada.');
+    error.status = 409;
+    throw error;
+  }
+
+  if (!await one('suppliers', { name: `eq.${parsed.supplier}` })) {
+    await db('suppliers', {
+      method: 'POST',
+      body: { name: parsed.supplier },
+      prefer: 'return=minimal'
+    });
+  }
+
+  const result = await db('invoices', {
+    method: 'POST',
+    body: {
+      number: parsed.number,
+      date: parsed.date,
+      supplier: parsed.supplier,
+      sector: '',
+      plan_code: '',
+      total: parsed.total
+    },
+    prefer: 'return=representation'
+  });
+
+  return { id: result.data[0].id, invoice: parsed };
+}
+
 module.exports = async (req, res) => {
   const url = new URL(req.url, 'https://local');
 
@@ -513,6 +575,21 @@ module.exports = async (req, res) => {
       return send(res, 201, {
         imported: await importCsv(parseBody(req).csv)
       });
+    }
+
+    if (entity === 'invoices' && id === 'import-xml' && method === 'POST') {
+      if (roles[user.role] < 2) {
+        return send(res, 403, { error: 'Você não tem permissão para importar notas.' });
+      }
+
+      try {
+        const result = await importNfe(parseBody(req).xml);
+        return send(res, 201, result);
+      } catch (error) {
+        return send(res, error.status || 400, {
+          error: error.message || 'Não foi possível importar o XML.'
+        });
+      }
     }
 
     if (!entities.has(entity)) {
