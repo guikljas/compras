@@ -152,6 +152,7 @@ async function currentUser(req) {
   if (!session) return null;
 
   return one('users', {
+    select: 'id,name,email,role,active',
     id: `eq.${session.user_id}`,
     active: 'eq.true'
   });
