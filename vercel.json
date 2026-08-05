@@ -3,7 +3,8 @@
   "rewrites": [
     { "source": "/login", "destination": "/login.html" },
     { "source": "/health", "destination": "/api/health" },
-    { "source": "/", "destination": "/app.html" }
+    { "source": "/", "destination": "/app.html" },
+    { "source": "/api/:path*", "destination": "/api/[...path]" }
   ],
   "functions": { "api/[...path].js": { "maxDuration": 60 } }
 }

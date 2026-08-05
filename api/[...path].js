@@ -64,7 +64,7 @@ const verifyPassword = (password, saved) => {
 
   return crypto.timingSafeEqual(
     Buffer.from(hash, 'hex'),
-    Buffer.from(crypto.scryptSync(password, salt, 64).toString('hex'))
+    Buffer.from(crypto.scryptSync(password, salt, 64).toString('hex'), 'hex')
   );
 };
 

@@ -3,3 +3,6 @@ node_modules/
 .env.local
 *.db
 *.db-journal
+
+.vercel
+.env*
