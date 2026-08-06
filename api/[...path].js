@@ -210,6 +210,8 @@ function allowed(req) {
   return true;
 }
 
+const BOM_PATTERN = /^﻿/;
+
 function csvRows(text) {
   const rows = [];
   let row = [];
@@ -261,7 +263,7 @@ async function importCsv(text) {
     throw new Error('Envie um CSV de até 3 MB.');
   }
 
-  const rows = csvRows(text.replace(/^\uFEFF/, ''));
+  const rows = csvRows(text.replace(BOM_PATTERN, ''));
 
   if (rows.length < 2) {
     throw new Error('O CSV precisa ter cabeçalho e ao menos uma linha.');
@@ -399,6 +401,64 @@ async function importCsv(text) {
   }
 
   return entries.length;
+}
+
+async function importProductsCsv(text) {
+  if (typeof text !== 'string' || text.length > 3_000_000) {
+    throw new Error('Envie um CSV de até 3 MB.');
+  }
+
+  const rows = csvRows(text.replace(BOM_PATTERN, ''));
+
+  if (rows.length < 2) {
+    throw new Error('O CSV precisa ter cabeçalho e ao menos uma linha.');
+  }
+
+  const header = rows.shift().map(norm);
+  const index = (...names) => header.findIndex(item => names.includes(item));
+
+  const columns = {
+    name: index('produto', 'nome', 'nomedoproduto'),
+    code: index('codigo', 'codigointerno'),
+    category: index('categoria', 'tipodedespesa'),
+    unit: index('unidade', 'un')
+  };
+
+  if (columns.name < 0) {
+    throw new Error('Use o modelo de colunas disponibilizado (é necessária ao menos a coluna PRODUTO).');
+  }
+
+  const entries = rows.map((row, rowIndex) => {
+    const get = key => columns[key] >= 0 ? clean(row[columns[key]]) : '';
+    const name = get('name');
+
+    if (!name) {
+      throw new Error(`Linha ${rowIndex + 2}: informe o nome do produto.`);
+    }
+
+    return {
+      name,
+      code: get('code'),
+      category: get('category'),
+      unit: get('unit') || 'UN'
+    };
+  });
+
+  let imported = 0;
+
+  for (const entry of entries) {
+    if (await one('products', { name: `eq.${entry.name}` })) continue;
+
+    await db('products', {
+      method: 'POST',
+      body: entry,
+      prefer: 'return=minimal'
+    });
+
+    imported++;
+  }
+
+  return imported;
 }
 
 function xmlValue(xml, tag) {
@@ -589,6 +649,21 @@ module.exports = async (req, res) => {
       } catch (error) {
         return send(res, error.status || 400, {
           error: error.message || 'Não foi possível importar o XML.'
+        });
+      }
+    }
+
+    if (entity === 'products' && id === 'import-csv' && method === 'POST') {
+      if (roles[user.role] < 2) {
+        return send(res, 403, { error: 'Sem permissão.' });
+      }
+
+      try {
+        const imported = await importProductsCsv(parseBody(req).csv);
+        return send(res, 201, { imported });
+      } catch (error) {
+        return send(res, 400, {
+          error: error.message || 'Não foi possível importar o CSV.'
         });
       }
     }
