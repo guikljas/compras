@@ -115,6 +115,24 @@ async function one(table, query) {
   return data?.[0] || null;
 }
 
+async function fetchAll(table, query) {
+  const pageSize = 1000;
+  let offset = 0;
+  let all = [];
+
+  while (true) {
+    const { data } = await db(table, { query: { ...query, limit: pageSize, offset } });
+    const rows = data || [];
+    all = all.concat(rows);
+
+    if (rows.length < pageSize) break;
+
+    offset += pageSize;
+  }
+
+  return all;
+}
+
 async function ensureAdmin() {
   const email = clean(process.env.ADMIN_EMAIL || 'compras01@erimax.com.br').toLowerCase();
 
@@ -744,9 +762,9 @@ module.exports = async (req, res) => {
 
       if (entity === 'plans') query.active = 'eq.true';
 
-      const result = await db(entity, { query });
+      const items = await fetchAll(entity, query);
 
-      return send(res, 200, { items: result.data || [] });
+      return send(res, 200, { items });
     }
 
     if (method === 'POST') {
