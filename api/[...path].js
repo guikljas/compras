@@ -325,7 +325,14 @@ async function importCsv(text) {
 
   for (const entry of entries) {
     const upsert = async (table, match, body) => {
-      if (!await one(table, match)) {
+      if (await one(table, match)) {
+        await db(table, {
+          method: 'PATCH',
+          query: match,
+          body,
+          prefer: 'return=minimal'
+        });
+      } else {
         await db(table, {
           method: 'POST',
           body,
@@ -445,20 +452,30 @@ async function importProductsCsv(text) {
   });
 
   let imported = 0;
+  let updated = 0;
 
   for (const entry of entries) {
-    if (await one('products', { name: `eq.${entry.name}` })) continue;
+    const match = { name: `eq.${entry.name}` };
 
-    await db('products', {
-      method: 'POST',
-      body: entry,
-      prefer: 'return=minimal'
-    });
-
-    imported++;
+    if (await one('products', match)) {
+      await db('products', {
+        method: 'PATCH',
+        query: match,
+        body: entry,
+        prefer: 'return=minimal'
+      });
+      updated++;
+    } else {
+      await db('products', {
+        method: 'POST',
+        body: entry,
+        prefer: 'return=minimal'
+      });
+      imported++;
+    }
   }
 
-  return imported;
+  return { imported, updated };
 }
 
 function xmlValue(xml, tag) {
@@ -659,8 +676,8 @@ module.exports = async (req, res) => {
       }
 
       try {
-        const imported = await importProductsCsv(parseBody(req).csv);
-        return send(res, 201, { imported });
+        const result = await importProductsCsv(parseBody(req).csv);
+        return send(res, 201, result);
       } catch (error) {
         return send(res, 400, {
           error: error.message || 'Não foi possível importar o CSV.'
@@ -832,6 +849,72 @@ module.exports = async (req, res) => {
       });
 
       return send(res, 201, { id: result.data[0].id });
+    }
+
+    if (method === 'PATCH' && id && entity === 'users') {
+      if (roles[user.role] < 3) {
+        return send(res, 403, {
+          error: 'Apenas administradores podem editar usuários.'
+        });
+      }
+
+      const value = parseBody(req);
+      const email = clean(value.email).toLowerCase();
+
+      if (!clean(value.name) || !/^\S+@\S+\.\S+$/.test(email) || !roles[value.role]) {
+        return send(res, 400, {
+          error: 'Informe os dados obrigatórios.'
+        });
+      }
+
+      const input = {
+        name: clean(value.name),
+        email,
+        role: value.role,
+        active: clean(value.active) !== 'false'
+      };
+
+      const password = String(value.password || '');
+
+      if (password) {
+        if (password.length < 8) {
+          return send(res, 400, {
+            error: 'A senha deve ter ao menos 8 caracteres.'
+          });
+        }
+
+        input.password_hash = hashPassword(password);
+      }
+
+      await db('users', {
+        method: 'PATCH',
+        query: { id: `eq.${id}` },
+        body: input,
+        prefer: 'return=minimal'
+      });
+
+      return send(res, 200, { ok: true });
+    }
+
+    if (method === 'DELETE' && id && entity === 'users') {
+      if (roles[user.role] < 3) {
+        return send(res, 403, {
+          error: 'Apenas administradores podem excluir usuários.'
+        });
+      }
+
+      if (Number(id) === user.id) {
+        return send(res, 400, {
+          error: 'Você não pode excluir seu próprio usuário.'
+        });
+      }
+
+      await db('users', {
+        method: 'DELETE',
+        query: { id: `eq.${id}` }
+      });
+
+      return send(res, 200, { ok: true });
     }
 
     if (method === 'PATCH' && id) {
